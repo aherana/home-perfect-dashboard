@@ -1,0 +1,11 @@
+node_modules
+.next
+.swc
+.git
+coverage
+*.log
+*.tsbuildinfo
+.env*
+.claude
+Dockerfile
+docker-compose.yml

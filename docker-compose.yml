@@ -1,0 +1,8 @@
+services:
+  dashboard:
+    build: .
+    image: home-perfect-dashboard
+    container_name: home-perfect-dashboard
+    ports:
+      - "3000:3000"
+    restart: unless-stopped
