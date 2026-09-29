@@ -62,7 +62,7 @@ describe("DashboardApp", () => {
     mockAllResolved();
     render(<DashboardApp />);
 
-    await waitFor(() => expect(screen.getByText("Home Perfect — Ops Command Center")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("$348,250")).toBeInTheDocument());
     expect(apiClient.fetchProfile).toHaveBeenCalledTimes(1);
     expect(apiClient.fetchExecutiveData).toHaveBeenCalledTimes(1);
     expect(apiClient.fetchAdjusterCases).toHaveBeenCalledTimes(1);
@@ -79,7 +79,57 @@ describe("DashboardApp", () => {
     render(<DashboardApp />);
 
     await waitFor(() => expect(screen.getByRole("alert")).toBeInTheDocument());
-    expect(screen.queryByText("Home Perfect — Ops Command Center")).not.toBeInTheDocument();
+    expect(screen.queryByText("$348,250")).not.toBeInTheDocument();
+    expect(screen.queryByRole("tab")).not.toBeInTheDocument();
+  });
+
+  it("keeps the header in the error state, using the profile if it loaded", async () => {
+    jest.mocked(apiClient.fetchProfile).mockResolvedValue({ ...profile, notificationCount: 7 });
+    jest.mocked(apiClient.fetchExecutiveData).mockRejectedValue(new Error("network down"));
+    jest.mocked(apiClient.fetchAdjusterCases).mockResolvedValue(cases);
+    jest.mocked(apiClient.fetchReferralData).mockResolvedValue(referral);
+
+    render(<DashboardApp />);
+
+    await waitFor(() => expect(screen.getByRole("alert")).toBeInTheDocument());
+    expect(screen.getByText("Home Perfect — Ops Command Center")).toBeInTheDocument();
+    expect(screen.getByText("7")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "API Health" })).toBeInTheDocument();
+  });
+
+  it("keeps the header in the error state even when the profile itself fails, falling back to the brand only", async () => {
+    jest.mocked(apiClient.fetchProfile).mockRejectedValue(new Error("API is currently disabled"));
+    jest.mocked(apiClient.fetchExecutiveData).mockRejectedValue(new Error("API is currently disabled"));
+    jest.mocked(apiClient.fetchAdjusterCases).mockRejectedValue(new Error("API is currently disabled"));
+    jest.mocked(apiClient.fetchReferralData).mockRejectedValue(new Error("API is currently disabled"));
+
+    render(<DashboardApp />);
+
+    await waitFor(() => expect(screen.getByRole("alert")).toBeInTheDocument());
+    expect(screen.getByText("Home Perfect — Ops Command Center")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "API Health" })).toBeInTheDocument();
+    expect(screen.queryByText("🔔", { exact: false })).not.toBeInTheDocument();
+  });
+
+  it("keeps the last-loaded profile in the header while retrying", async () => {
+    const user = userEvent.setup();
+    jest.mocked(apiClient.fetchProfile).mockResolvedValueOnce({ ...profile, brandName: "Loaded Brand" });
+    jest.mocked(apiClient.fetchExecutiveData).mockRejectedValueOnce(new Error("down"));
+    jest.mocked(apiClient.fetchAdjusterCases).mockResolvedValueOnce(cases);
+    jest.mocked(apiClient.fetchReferralData).mockResolvedValueOnce(referral);
+
+    render(<DashboardApp />);
+    await waitFor(() => expect(screen.getByRole("alert")).toBeInTheDocument());
+
+    jest.mocked(apiClient.fetchProfile).mockRejectedValue(new Error("down"));
+    jest.mocked(apiClient.fetchExecutiveData).mockRejectedValue(new Error("down"));
+    jest.mocked(apiClient.fetchAdjusterCases).mockRejectedValue(new Error("down"));
+    jest.mocked(apiClient.fetchReferralData).mockRejectedValue(new Error("down"));
+    await user.click(screen.getByRole("button", { name: "Try again" }));
+
+    await waitFor(() => expect(apiClient.fetchProfile).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.getByRole("alert")).toBeInTheDocument());
+    expect(screen.getByText("Loaded Brand")).toBeInTheDocument();
   });
 
   it("offers the API toggle and a retry button in the error state, so a disabled API is recoverable without leaving the page", async () => {
@@ -109,7 +159,7 @@ describe("DashboardApp", () => {
     mockAllResolved();
     await user.click(screen.getByRole("button", { name: "Try again" }));
 
-    await waitFor(() => expect(screen.getByText("Home Perfect — Ops Command Center")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("$348,250")).toBeInTheDocument());
     expect(apiClient.fetchProfile).toHaveBeenCalledTimes(2);
   });
 });

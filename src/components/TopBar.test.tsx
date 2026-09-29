@@ -27,6 +27,13 @@ describe("TopBar", () => {
     expect(screen.getByText("A")).toBeInTheDocument();
   });
 
+  it("omits the notification badge and avatar when they aren't known (e.g. the API is offline)", () => {
+    render(<TopBar brandName="Home Perfect" location="Temecula" />);
+    expect(screen.getByText("Home Perfect")).toBeInTheDocument();
+    expect(screen.queryByText("🔔", { exact: false })).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "API Health" })).toBeInTheDocument();
+  });
+
   it("links to the API health endpoint in a new tab", () => {
     render(<TopBar brandName="Home Perfect" location="Temecula" notificationCount={3} avatarInitial="A" />);
     const link = screen.getByRole("link", { name: "API Health" });

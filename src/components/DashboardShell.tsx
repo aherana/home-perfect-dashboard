@@ -35,7 +35,7 @@ export function DashboardShell({ data }: DashboardShellProps) {
         avatarInitial={data.avatarInitial}
       />
       <TabNav tabs={tabs} active={activeTab} onChange={setActiveTab} />
-      <main className="mx-auto max-w-4xl px-6 py-5.5 pb-12">
+      <main className="mx-auto w-full max-w-4xl px-6 py-5.5 pb-12">
         <div hidden={activeTab !== "t1"}>
           <ExecutiveView
             totalAr={data.totalAr}

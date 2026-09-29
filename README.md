@@ -31,6 +31,33 @@ Open [http://localhost:3000](http://localhost:3000).
 | `npm run test:watch` | Run Jest in watch mode |
 | `npm run lint` | ESLint |
 
+## Deploying with Docker
+
+The app ships as a self-contained Docker image, built from Next.js's [`standalone` output](https://nextjs.org/docs/app/api-reference/config/next-config-js/output) (`output: "standalone"` in `next.config.ts`).
+
+```bash
+docker compose up -d --build   # build the image and start the container
+docker compose logs -f         # follow logs
+docker compose down            # stop and remove the container
+```
+
+The dashboard is then served at [http://localhost:3000](http://localhost:3000); `curl http://localhost:3000/api/health` makes a quick smoke test. Rerun `docker compose up -d --build` after code changes.
+
+| File | Role |
+|---|---|
+| `Dockerfile` | Multi-stage build on `node:22-alpine`: `deps` (`npm ci`) → `builder` (`npm run build`) → `runner`, which copies only `.next/standalone`, `.next/static`, and `public`, and runs `node server.js` as a non-root `nextjs` user on port 3000 |
+| `docker-compose.yml` | One `dashboard` service, image `home-perfect-dashboard`, port `3000:3000`, `restart: unless-stopped` |
+| `.dockerignore` | Keeps `node_modules`, `.next`, `.git`, `.env*`, logs, and build caches out of the build context |
+
+To use a different host port, change the left side of the mapping (e.g. `"8080:3000"`). The image needs no environment variables; the container sets `PORT=3000` and `HOSTNAME=0.0.0.0`. The API kill switch (`/api/toggle`) is in-memory, so it resets to "on" whenever the container restarts.
+
+Without Compose:
+
+```bash
+docker build -t home-perfect-dashboard .
+docker run -d -p 3000:3000 --name home-perfect-dashboard home-perfect-dashboard
+```
+
 ## Project structure
 
 ```
@@ -51,9 +78,10 @@ src/
       */route.test.ts              each route handler tested directly (Node test environment; see below)
   components/
     DashboardApp                       fetches all four endpoints on mount, assembles DashboardData,
-                                        renders a loading/error/ready state; the error state renders
-                                        <ApiToggle/> + a "Try again" retry button so a toggled-off API
-                                        is recoverable without leaving the page
+                                        renders a loading/error/ready state; loading and error keep
+                                        <TopBar/> (last-loaded profile, else a brand-only fallback) so
+                                        its <ApiToggle/> + a "Try again" retry button make a toggled-off
+                                        API recoverable without leaving the page
     ApiToggle                          on/off kill-switch button — fetches real state from /api/toggle on
                                         mount (starts "checking", never assumes "on"), optimistically
                                         flips on click with rollback on failure
@@ -102,7 +130,7 @@ Every component's test lives next to it (`Foo.tsx` / `Foo.test.tsx`), and every 
 
 **`/api/health` is a liveness probe, not a data source — it's outside the DashboardData contract entirely.** It's for external monitoring (uptime checks, a load balancer, `curl` in CI before hitting the other routes) and for a human to check manually: `TopBar` links out to it with a plain `<a href="/api/health" target="_blank">`, real navigation to the raw JSON, not a `fetch()` call. There's deliberately no live-polling status widget in the UI — an earlier version had a self-fetching `HealthIndicator` in the header, but that turned every test rendering `TopBar` into a test that also had to mock `fetchHealth` (three files did), for a feature whose actual value was "let someone check the API," not "narrate its status continuously in the header." A plain link gets the same job done for near-zero cost: `HealthStatus` (the response type) and the route itself are still real and tested (`route.test.ts`), just not wrapped in a client fetcher — `api-client.ts` only has wrappers for the four data endpoints the app actually needs to call from JS. `Cache-Control: no-store` on the route so a manual check always reflects the current process, not a cached response; `uptimeSeconds` comes from `process.uptime()`, which only means something meaningful once this becomes a real long-running server rather than a serverless function that cold-starts per request.
 
-**The mock API has a real on/off kill switch, for simulating an outage.** `src/lib/api-toggle.ts` holds a module-level `enabled` flag (default `true`) behind `isApiEnabled()`/`setApiEnabled()`. `POST /api/toggle` flips it and `GET /api/toggle` reads it; all five other routes (the four data endpoints plus `/api/health`) check `isApiEnabled()` and return 503 when it's off. This is a single in-memory value — correct for `next dev` and a single-instance deployment, but it does **not** synchronize across multiple serverless instances, so it's a dev/demo tool, not a production feature flag. `ApiToggle` (rendered in `TopBar`, and again in `DashboardApp`'s error state) is the UI for it: on mount it calls `fetchApiToggleState()` and shows the *real* state — starting from a neutral "checking" label, never an assumed "on" — falling back to "off" (not a false "on") if that initial fetch itself fails; clicking it calls `toggleApi()` optimistically (flips immediately, rolls back on failure) and disables itself while the request is in flight. Because `ApiToggle` self-fetches on mount, every test that renders it (directly or via `TopBar`/`DashboardShell`/`DashboardApp`) needs `jest.mock("@/lib/api-client")` plus a `beforeEach` that defaults `fetchApiToggleState` to a never-resolving `Promise`, so unrelated tests don't get an unmocked-fetch crash or an `act()` warning — only the specific test that cares about the resolved value overrides it.
+**The mock API has a real on/off kill switch, for simulating an outage.** `src/lib/api-toggle.ts` holds a module-level `enabled` flag (default `true`) behind `isApiEnabled()`/`setApiEnabled()`. `POST /api/toggle` flips it and `GET /api/toggle` reads it; all five other routes (the four data endpoints plus `/api/health`) check `isApiEnabled()` and return 503 when it's off. This is a single in-memory value — correct for `next dev` and a single-instance deployment, but it does **not** synchronize across multiple serverless instances, so it's a dev/demo tool, not a production feature flag. `ApiToggle` (rendered in `TopBar`, which `DashboardApp` keeps on screen in its loading and error states too) is the UI for it: on mount it calls `fetchApiToggleState()` and shows the *real* state — starting from a neutral "checking" label, never an assumed "on" — falling back to "off" (not a false "on") if that initial fetch itself fails; clicking it calls `toggleApi()` optimistically (flips immediately, rolls back on failure) and disables itself while the request is in flight. Because `ApiToggle` self-fetches on mount, every test that renders it (directly or via `TopBar`/`DashboardShell`/`DashboardApp`) needs `jest.mock("@/lib/api-client")` plus a `beforeEach` that defaults `fetchApiToggleState` to a never-resolving `Promise`, so unrelated tests don't get an unmocked-fetch crash or an `act()` warning — only the specific test that cares about the resolved value overrides it.
 
 **Business logic lives in pure functions, not components.** `src/lib/dashboard-logic.ts` holds the rules for how state changes — `countOpenIssues`, `resolveChip`/`unresolveChip`, `settleFee`/`unsettleFee`, `sumPendingFees`, `filterCases`/`filterPartners`, `chipDisplayText`, `computeCustomRangeClosing`. These are unit-tested directly with plain Jest, no rendering required. Components stay presentational and call these functions from event handlers. Resolving/settling never mutates stored text — `chipDisplayText` derives what to show (base text vs. `okText`) from `status` at render time, which is what makes the undo pairs above trivial: undo just flips `status` back, nothing to reconstruct.
 

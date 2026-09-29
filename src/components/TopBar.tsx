@@ -3,8 +3,9 @@ import { ApiToggle } from "./ApiToggle";
 interface TopBarProps {
   brandName: string;
   location: string;
-  notificationCount: number;
-  avatarInitial: string;
+  /** Omitted when the profile couldn't be loaded (e.g. the API is offline) — the badge is hidden rather than showing a made-up count. */
+  notificationCount?: number;
+  avatarInitial?: string;
 }
 
 export function TopBar({ brandName, location, notificationCount, avatarInitial }: TopBarProps) {
@@ -24,15 +25,19 @@ export function TopBar({ brandName, location, notificationCount, avatarInitial }
         >
           API Health
         </a>
-        <span>
-          🔔{" "}
-          <span className="rounded-full bg-amber px-1.5 py-px text-[11px] font-bold text-white">
-            {notificationCount}
+        {notificationCount !== undefined && (
+          <span>
+            🔔{" "}
+            <span className="rounded-full bg-amber px-1.5 py-px text-[11px] font-bold text-white">
+              {notificationCount}
+            </span>
           </span>
-        </span>
-        <span className="flex h-7 w-7 items-center justify-center rounded-full bg-card-line text-xs font-bold text-fg">
-          {avatarInitial}
-        </span>
+        )}
+        {avatarInitial !== undefined && (
+          <span className="flex h-7 w-7 items-center justify-center rounded-full bg-card-line text-xs font-bold text-fg">
+            {avatarInitial}
+          </span>
+        )}
       </div>
     </div>
   );
